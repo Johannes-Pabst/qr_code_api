@@ -100,7 +100,7 @@ async fn generate(req: HttpRequest) -> impl Responder {
                 }).collect::<String>()
             }).collect::<Vec<_>>().join("\n");
             
-            (BoxBody::new(comb), "text/plain", "txt")
+            (BoxBody::new(comb), "text/plain; charset=utf8", "txt")
         }
     };
     HttpResponse::Ok()
