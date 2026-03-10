@@ -1,14 +1,11 @@
 use actix_web::{
-    App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer, Responder,
-    body::BoxBody,
-    http::{StatusCode, header},
-    web,
+    App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer, Responder, body::BoxBody, http::{StatusCode, header}, middleware, web
 };
 use image::{ImageBuffer, Rgb};
 use qrcode::{EcLevel, QrCode};
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let _ = HttpServer::new(|| App::new().default_service(web::to(generate)))
+    let _ = HttpServer::new(|| App::new().wrap(middleware::Compress::default()).default_service(web::to(generate)))
         .bind(("0.0.0.0", 8081))?
         .run()
         .await;
