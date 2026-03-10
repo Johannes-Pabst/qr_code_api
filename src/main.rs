@@ -1,6 +1,6 @@
 use actix_web::{
     App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer, Responder, body::BoxBody,
-    http::StatusCode, web,
+    http::{StatusCode, header}, web,
 };
 use image::{ImageBuffer, Rgb};
 use qrcode::QrCode;
@@ -21,26 +21,36 @@ async fn generate(req: HttpRequest) -> impl Responder {
     } else {
         url
     };
-    let fsid = url.find("/").unwrap() + 1;
-    let url = url[fsid..].to_string();
-    let ssid = url.find("/").unwrap_or(url.len());
-    let farg = url[0..ssid].to_string();
-    let url = url[ssid + 1..].to_string();
-    let flags = farg.split('-').collect::<Vec<&str>>();
     let mut format = OutputFormat::Png;
     let mut send_data_format = SendDataFormat::BrowserDisplay;
-    for flag in flags {
-        match flag {
-            "png" => format = OutputFormat::Png,
-            "jpg" => format = OutputFormat::Jpg,
-            "svg" => format = OutputFormat::Svg,
-            "text" => format = OutputFormat::Text,
-            "download" => send_data_format = SendDataFormat::Download,
-            "browser" => send_data_format = SendDataFormat::BrowserDisplay,
-            _ => return HttpResponse::BadRequest().body("Invalid format or flag provided."),
-        };
+    if req.headers().get(header::USER_AGENT).map(|s| s.to_str().ok()).flatten().map(|s| s.contains("curl")).unwrap_or(false){
+        format=OutputFormat::Text;
     }
-    let code_err = QrCode::new(&url);
+    let mut target="https://github.com/Johannes-Pabst/qr_code_api/".to_string();
+    if let Some(fsidm1)=url.find("/"){
+        let fsid = fsidm1 + 1;
+        let url = url[fsid..].to_string();
+        let ssid = url.find("/").unwrap_or(url.len());
+        let farg = url[0..ssid].to_string();
+        if farg.chars().all(|c| "abcdefghijklmnopqrstuvwxyz-".contains(c)&&ssid<url.len()){
+            target = url[ssid + 1..].to_string();
+            let flags = farg.split('-').collect::<Vec<&str>>();
+            for flag in flags {
+                match flag {
+                    "png" => format = OutputFormat::Png,
+                    "jpg" => format = OutputFormat::Jpg,
+                    "svg" => format = OutputFormat::Svg,
+                    "text" => format = OutputFormat::Text,
+                    "download" => send_data_format = SendDataFormat::Download,
+                    "browser" => send_data_format = SendDataFormat::BrowserDisplay,
+                    _ => return HttpResponse::BadRequest().body("Invalid format or flag provided."),
+                };
+            }
+        }else{
+            target=url;
+        }
+    }
+    let code_err = QrCode::new(&target);
     if code_err.is_err() {
         return HttpResponseBuilder::new(StatusCode::PAYLOAD_TOO_LARGE)
             .body("Failed to generate QR code, probably too long URL or invalid characters.");
@@ -77,7 +87,7 @@ async fn generate(req: HttpRequest) -> impl Responder {
             let image = format!(
                 "{}<a href=\"{}\" target=\"_blank\">{}</a>{}",
                 image[..id1].to_string(),
-                url.replace("&", "&amp;"),
+                target.replace("&", "&amp;"),
                 image[id1..id2].to_string(),
                 image[id2..].to_string()
             );
