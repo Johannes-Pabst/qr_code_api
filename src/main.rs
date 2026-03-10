@@ -1,9 +1,11 @@
 use actix_web::{
-    App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer, Responder, body::BoxBody,
-    http::{StatusCode, header}, web,
+    App, HttpRequest, HttpResponse, HttpResponseBuilder, HttpServer, Responder,
+    body::BoxBody,
+    http::{StatusCode, header},
+    web,
 };
 use image::{ImageBuffer, Rgb};
-use qrcode::QrCode;
+use qrcode::{EcLevel, QrCode};
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let _ = HttpServer::new(|| App::new().default_service(web::to(generate)))
@@ -23,16 +25,28 @@ async fn generate(req: HttpRequest) -> impl Responder {
     };
     let mut format = OutputFormat::Png;
     let mut send_data_format = SendDataFormat::BrowserDisplay;
-    if req.headers().get(header::USER_AGENT).map(|s| s.to_str().ok()).flatten().map(|s| s.contains("curl")).unwrap_or(false){
-        format=OutputFormat::Text;
+    let mut ecl = None;
+    if req
+        .headers()
+        .get(header::USER_AGENT)
+        .map(|s| s.to_str().ok())
+        .flatten()
+        .map(|s| s.contains("curl"))
+        .unwrap_or(false)
+    {
+        format = OutputFormat::Text;
     }
-    let mut target="https://github.com/Johannes-Pabst/qr_code_api/".to_string();
-    if let Some(fsidm1)=url.find("/"){
+    let mut target = "https://github.com/Johannes-Pabst/qr_code_api/".to_string();
+    if let Some(fsidm1) = url.find("/") {
         let fsid = fsidm1 + 1;
         let url = url[fsid..].to_string();
         let ssid = url.find("/").unwrap_or(url.len());
         let farg = url[0..ssid].to_string();
-        if farg.chars().all(|c| "abcdefghijklmnopqrstuvwxyz-".contains(c)&&ssid<url.len()){
+        if farg
+            .chars()
+            .all(|c| "abcdefghijklmnopqrstuvwxyz-".contains(c))
+            && ssid < url.len()
+        {
             target = url[ssid + 1..].to_string();
             let flags = farg.split('-').collect::<Vec<&str>>();
             for flag in flags {
@@ -41,16 +55,26 @@ async fn generate(req: HttpRequest) -> impl Responder {
                     "jpg" => format = OutputFormat::Jpg,
                     "svg" => format = OutputFormat::Svg,
                     "text" => format = OutputFormat::Text,
+                    "low" => ecl = Some(EcLevel::L),
+                    "medium" => ecl = Some(EcLevel::M),
+                    "quartile" => ecl = Some(EcLevel::Q),
+                    "high" => ecl = Some(EcLevel::H),
                     "download" => send_data_format = SendDataFormat::Download,
                     "browser" => send_data_format = SendDataFormat::BrowserDisplay,
-                    _ => return HttpResponse::BadRequest().body("Invalid format or flag provided."),
+                    _ => {
+                        return HttpResponse::BadRequest().body("Invalid format or flag provided.");
+                    }
                 };
             }
-        }else{
-            target=url;
+        } else {
+            target = url;
         }
     }
-    let code_err = QrCode::new(&target);
+    let code_err = if let Some(ecl) = ecl {
+        QrCode::with_error_correction_level(&target, ecl)
+    } else {
+        QrCode::new(&target)
+    };
     if code_err.is_err() {
         return HttpResponseBuilder::new(StatusCode::PAYLOAD_TOO_LARGE)
             .body("Failed to generate QR code, probably too long URL or invalid characters.");
@@ -95,21 +119,35 @@ async fn generate(req: HttpRequest) -> impl Responder {
         }
         OutputFormat::Text => {
             let image = code
-                .render().light_color('w').dark_color('b')
+                .render()
+                .light_color('w')
+                .dark_color('b')
                 .quiet_zone(false)
                 .build();
             let repeat = "b".repeat(image.find('\n').unwrap());
-            let lines=image.lines().chain(std::iter::once(repeat.as_str())).collect::<Vec<&str>>();
-            let comb=lines.chunks(2).map(|c| {
-                c[0].chars().zip(c[1].chars()).map(|(c1, c2)| match (c1, c2) {
-                    ('b', 'b')=>' ',
-                    ('b', 'w')=>'▄',
-                    ('w', 'b')=>'▀',
-                    ('w', 'w')=>'█',
-                    (_, _) => panic!()
-                }).collect::<String>()
-            }).collect::<Vec<_>>().join("\n");
-            
+            let lines = image
+                .lines()
+                .chain(std::iter::once(repeat.as_str()))
+                .collect::<Vec<&str>>();
+            let comb = lines
+                .chunks(2)
+                .map(|c| {
+                    format!(
+                        "{}\n",
+                        c[0].chars()
+                            .zip(c[1].chars())
+                            .map(|(c1, c2)| match (c1, c2) {
+                                ('b', 'b') => ' ',
+                                ('b', 'w') => '▄',
+                                ('w', 'b') => '▀',
+                                ('w', 'w') => '█',
+                                (_, _) => panic!(),
+                            })
+                            .collect::<String>()
+                    )
+                })
+                .collect::<String>();
+
             (BoxBody::new(comb), "text/plain; charset=utf8", "txt")
         }
     };
