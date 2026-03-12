@@ -17,7 +17,7 @@ It also supports different **QR error correction levels** and **download behavio
 ---
 
 # Running the Server
-
+ ## A demo server is running on qr.sach.si.
 Build and run the server:
 
 ```bash
